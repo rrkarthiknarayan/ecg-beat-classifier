@@ -24,14 +24,27 @@ st.title("ECG heartbeat classifier - normal vs abnormal")
 st.warning("Research / classroom benchmark on the public MIT-BIH database. "
            "Not a medical device and not a diagnosis.")
 
-if not (OUT / "model.joblib").exists():
-    st.error("Run `python src/train.py` first."); st.stop()
 if not DATA.exists():
     st.error("Run `python download_data.py` first."); st.stop()
 
-bundle = joblib.load(OUT / "model.joblib")
+@st.cache_resource
+def get_bundle():
+    try:
+        return joblib.load(OUT / "model.joblib")
+    except Exception:
+        from data import DS1, CAL_RECORDS
+        from train import make_model
+        recs = [r for r in DS1 if (DATA / f"{r}.dat").exists()]
+        train_ds = build_dataset([r for r in recs if r not in CAL_RECORDS], DATA)
+        cal_ds = build_dataset([r for r in recs if r in CAL_RECORDS], DATA)
+        m = make_model().fit(features(train_ds), train_ds["y"])
+        p_cal = m.predict_proba(features(cal_ds))
+        q = novel.calibrate(p_cal, cal_ds["y"], 0.10)
+        return dict(model=m, q=q, alpha=0.10, p_cal=p_cal, y_cal=cal_ds["y"])
+
+bundle = get_bundle()
 model = bundle["model"]
-metrics = json.load(open(OUT / "metrics.json"))
+metrics = json.load(open(OUT / "metrics.json")) if (OUT / "metrics.json").exists() else {"results": {}, "conformal": {}}
 
 
 @st.cache_data
