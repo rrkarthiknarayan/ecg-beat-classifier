@@ -32,16 +32,19 @@ def get_bundle():
     try:
         return joblib.load(OUT / "model.joblib")
     except Exception:
-        from data import DS1, CAL_RECORDS
         from train import make_model
-        recs = [r for r in DS1 if (DATA / f"{r}.dat").exists()]
-        train_ds = build_dataset([r for r in recs if r not in CAL_RECORDS], DATA)
-        cal_ds = build_dataset([r for r in recs if r in CAL_RECORDS], DATA)
+        recs = sorted(int(p.stem) for p in DATA.glob("*.dat"))
+        ds = build_dataset(recs, DATA)
+        idx = np.random.default_rng(0).permutation(len(ds["y"]))
+        cut = int(len(idx) * 0.8)
+        tr, ca = idx[:cut], idx[cut:]
+        train_ds = {k: v[tr] for k, v in ds.items()}
+        cal_ds = {k: v[ca] for k, v in ds.items()}
         m = make_model().fit(features(train_ds), train_ds["y"])
         p_cal = m.predict_proba(features(cal_ds))
         q = novel.calibrate(p_cal, cal_ds["y"], 0.10)
         return dict(model=m, q=q, alpha=0.10, p_cal=p_cal, y_cal=cal_ds["y"])
-
+    
 bundle = get_bundle()
 model = bundle["model"]
 metrics = json.load(open(OUT / "metrics.json")) if (OUT / "metrics.json").exists() else {"results": {}, "conformal": {}}
